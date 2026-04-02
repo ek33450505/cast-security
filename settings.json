@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-security-guard.sh"}]},
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-audit-hook.sh"}]}
+    ],
+    "PermissionRequest": [
+      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-permission-hook.sh"}]}
+    ]
+  }
+}

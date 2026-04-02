@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
+
+jobs:
+  bats:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install python3
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get install -y python3
+          else
+            brew install python3 || true
+          fi
+      - name: Install sqlite3
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get install -y sqlite3
+          else
+            brew install sqlite3 || true
+          fi
+      - name: Install cast-security
+        run: CI=true bash install.sh
+      - name: Verify version
+        run: cast-security --version
+      - name: Run BATS suite
+        run: tests/bats/bin/bats tests/install.bats tests/cli.bats tests/hooks.bats --tap

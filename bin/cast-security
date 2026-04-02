@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+# cast-security — Security hooks and audit trail CLI for Claude Code
+#
+# Usage: cast-security <subcommand> [args]
+#
+# Subcommands: status, audit, redact, policies, install
+
+set -uo pipefail
+
+# ── Script directory (resolve symlinks) ──────────────────────────────────────
+CS_BIN_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")" && pwd)"
+CS_REPO_DIR="$(cd "$CS_BIN_DIR/.." && pwd)"
+
+# ── Scripts directory — replaced by Homebrew formula at install time ─────────
+SECURITY_SCRIPTS_DIR=""
+
+# ── Version ──────────────────────────────────────────────────────────────────
+if [ -n "${SECURITY_SCRIPTS_DIR:-}" ]; then
+  CS_VERSION="$(cat "${SECURITY_SCRIPTS_DIR}/VERSION" 2>/dev/null || echo "unknown")"
+else
+  CS_VERSION="$(cat "${CS_REPO_DIR}/VERSION" 2>/dev/null || echo "unknown")"
+fi
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+AUDIT_LOG="${HOME}/.claude/logs/cast-security-audit.jsonl"
+HOOK_FIRED_DIR="${HOME}/.claude/cast-security/hook-last-fired"
+POLICIES_FILE="${HOME}/.claude/config/policies.json"
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
+  C_BOLD='\033[1m'
+  C_GREEN='\033[0;32m'
+  C_YELLOW='\033[0;33m'
+  C_CYAN='\033[0;36m'
+  C_RED='\033[0;31m'
+  C_DIM='\033[2m'
+  C_RESET='\033[0m'
+else
+  C_BOLD='' C_GREEN='' C_YELLOW='' C_CYAN='' C_RED='' C_DIM='' C_RESET=''
+fi
+
+_info()    { printf "${C_CYAN}%s${C_RESET}\n" "$*"; }
+_success() { printf "${C_GREEN}%s${C_RESET}\n" "$*"; }
+_warn()    { printf "${C_YELLOW}%s${C_RESET}\n" "$*" >&2; }
+_error()   { printf "${C_RED}Error: %s${C_RESET}\n" "$*" >&2; }
+_bold()    { printf "${C_BOLD}%s${C_RESET}\n" "$*"; }
+_dim()     { printf "${C_DIM}%s${C_RESET}\n" "$*"; }
+
+# ── Subcommand: status ────────────────────────────────────────────────────────
+_cmd_status() {
+  printf "\n"
+  _bold "cast-security v${CS_VERSION} — Status"
+  printf "${C_DIM}%s${C_RESET}\n" "════════════════════════════════════"
+
+  # Hook last-fired timestamps
+  printf "\n"
+  _bold "Hook health:"
+  for hook in cast-security-guard cast-audit-hook; do
+    ts_file="${HOOK_FIRED_DIR}/${hook}.timestamp"
+    if [ -f "$ts_file" ]; then
+      ts="$(date -r "$ts_file" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || stat -c "%y" "$ts_file" 2>/dev/null || echo "unknown")"
+      printf "  %-30s last fired: %s\n" "${hook}.sh" "$ts"
+    else
+      printf "  %-30s %s\n" "${hook}.sh" "${C_YELLOW}not yet fired${C_RESET}"
+    fi
+  done
+
+  # PermissionRequest hook
+  perm_ts="${HOOK_FIRED_DIR}/PermissionRequest.timestamp"
+  if [ -f "$perm_ts" ]; then
+    ts="$(date -r "$perm_ts" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || stat -c "%y" "$perm_ts" 2>/dev/null || echo "unknown")"
+    printf "  %-30s last fired: %s\n" "cast-permission-hook.sh" "$ts"
+  else
+    printf "  %-30s %s\n" "cast-permission-hook.sh" "${C_YELLOW}not yet fired${C_RESET}"
+  fi
+
+  # Audit log stats
+  printf "\n"
+  _bold "Audit log:"
+  if [ -f "$AUDIT_LOG" ]; then
+    line_count="$(wc -l < "$AUDIT_LOG" 2>/dev/null | tr -d ' ')"
+    size="$(du -sh "$AUDIT_LOG" 2>/dev/null | awk '{print $1}' || echo "?")"
+    printf "  %s (%s lines, %s)\n" "$AUDIT_LOG" "$line_count" "$size"
+  else
+    printf "  ${C_DIM}No audit log yet — start a Claude Code session to generate data${C_RESET}\n"
+  fi
+
+  # Active policies count
+  printf "\n"
+  _bold "Policies:"
+  if [ -f "$POLICIES_FILE" ]; then
+    count="$(python3 -c "
+import json
+try:
+    with open('$POLICIES_FILE') as f:
+        d = json.load(f)
+    print(len(d.get('policies', [])))
+except Exception:
+    print(0)
+" 2>/dev/null || echo "?")"
+    printf "  %s active policies in %s\n" "$count" "$POLICIES_FILE"
+  else
+    printf "  ${C_DIM}policies.json not found — run: cast-security install${C_RESET}\n"
+  fi
+
+  printf "\n"
+}
+
+# ── Subcommand: audit ─────────────────────────────────────────────────────────
+_cmd_audit() {
+  local tail_n=20
+
+  while [ "${#}" -gt 0 ]; do
+    case "$1" in
+      --tail)
+        tail_n="${2:-20}"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+
+  printf "\n"
+  _bold "cast-security — Audit Log (last ${tail_n} entries)"
+  printf "${C_DIM}%s${C_RESET}\n" "════════════════════════════════════════════════════"
+
+  if [ ! -f "$AUDIT_LOG" ]; then
+    printf "  ${C_DIM}No audit log found at %s${C_RESET}\n\n" "$AUDIT_LOG"
+    return 0
+  fi
+
+  tail -n "$tail_n" "$AUDIT_LOG" 2>/dev/null | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        r = json.loads(line)
+        ts = r.get('timestamp', '')[:19]
+        tool = r.get('tool_name', '?')[:20]
+        fp = r.get('file_path', r.get('command_preview', r.get('url', '')))[:40]
+        proj = r.get('project', '')[:20]
+        print(f'  {ts}  {tool:<22} {fp:<42} {proj}')
+    except Exception:
+        print(f'  {line[:80]}')
+" 2>/dev/null || tail -n "$tail_n" "$AUDIT_LOG"
+
+  printf "\n"
+}
+
+# ── Subcommand: redact ────────────────────────────────────────────────────────
+_cmd_redact() {
+  if [ "${#}" -eq 0 ]; then
+    _error "Usage: cast-security redact <text>"
+    printf "  Pipes text through cast-redact.py and shows redaction result.\n" >&2
+    exit 1
+  fi
+
+  local text="$*"
+  local redact_script
+
+  if [ -n "${SECURITY_SCRIPTS_DIR:-}" ]; then
+    redact_script="${SECURITY_SCRIPTS_DIR}/cast-redact.py"
+  else
+    redact_script="${CS_REPO_DIR}/scripts/cast-redact.py"
+  fi
+
+  # Also check ~/.claude/scripts/
+  if [ ! -f "$redact_script" ]; then
+    redact_script="${HOME}/.claude/scripts/cast-redact.py"
+  fi
+
+  if [ ! -f "$redact_script" ]; then
+    _error "cast-redact.py not found. Run: cast-security install"
+    exit 1
+  fi
+
+  python3 "$redact_script" --text "$text" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.loads(sys.stdin.read())
+    print()
+    print('  Input:    ' + '$text'[:80])
+    print('  Redacted: ' + d.get('redacted_text', '')[:80])
+    print('  Entities: ' + str(d.get('entity_count', 0)))
+    print('  Engine:   ' + d.get('engine', '?'))
+    print()
+except Exception as e:
+    print(sys.stdin.read())
+" 2>/dev/null || python3 "$redact_script" --text "$text"
+}
+
+# ── Subcommand: policies ──────────────────────────────────────────────────────
+_cmd_policies() {
+  printf "\n"
+  _bold "cast-security — Active Policies"
+  printf "${C_DIM}%s${C_RESET}\n" "════════════════════════════════════"
+
+  local policies_path="${POLICIES_FILE}"
+
+  if [ ! -f "$policies_path" ]; then
+    printf "  ${C_DIM}policies.json not found at %s${C_RESET}\n" "$policies_path"
+    printf "  Run: cast-security install\n\n"
+    return 0
+  fi
+
+  python3 -c "
+import json, sys
+try:
+    with open('$policies_path') as f:
+        d = json.load(f)
+    policies = d.get('policies', [])
+    for p in policies:
+        pid = p.get('id', '?')
+        desc = p.get('description', '')
+        pattern = p.get('path_pattern', '')
+        severity = p.get('severity', 'warn')
+        agent = p.get('requires_agent', '')
+        print(f'  [{severity.upper()}] {pid}')
+        print(f'         {desc}')
+        print(f'         Pattern: {pattern}')
+        if agent:
+            print(f'         Agent: {agent}')
+        print()
+except Exception as e:
+    print(f'  Error reading policies: {e}')
+" 2>/dev/null || python3 -m json.tool "$policies_path"
+}
+
+# ── Subcommand: install ───────────────────────────────────────────────────────
+_cmd_install() {
+  printf "\n"
+  _bold "cast-security install"
+  printf "${C_DIM}%s${C_RESET}\n" "════════════════════════════════════"
+
+  # Determine scripts source directory
+  local src_dir="${SECURITY_SCRIPTS_DIR}"
+  if [ -z "$src_dir" ]; then
+    src_dir="${CS_REPO_DIR}/scripts"
+  fi
+
+  if [ ! -d "$src_dir" ]; then
+    _error "Scripts directory not found: $src_dir"
+    exit 1
+  fi
+
+  # Step 1: Create directories
+  mkdir -p "${HOME}/.claude/scripts" \
+           "${HOME}/.claude/config" \
+           "${HOME}/.claude/cast-security" \
+           "${HOME}/.claude/cast-security/hook-last-fired" \
+           "${HOME}/.claude/logs"
+  _success "  Directories created"
+
+  # Step 2: Copy scripts
+  local copied=0
+  for f in "${src_dir}"/cast-security-guard.sh \
+            "${src_dir}"/cast-permission-hook.sh \
+            "${src_dir}"/cast-audit-hook.sh \
+            "${src_dir}"/cast-redact.py; do
+    [ -f "$f" ] || continue
+    cp "$f" "${HOME}/.claude/scripts/"
+    chmod +x "${HOME}/.claude/scripts/$(basename "$f")" 2>/dev/null || true
+    copied=$((copied + 1))
+  done
+  _success "  Scripts installed: ${copied} files → ~/.claude/scripts/"
+
+  # Step 3: Copy config files
+  local config_src="${SECURITY_SCRIPTS_DIR:-${CS_REPO_DIR}}/config"
+  if [ -z "$SECURITY_SCRIPTS_DIR" ]; then
+    config_src="${CS_REPO_DIR}/config"
+  fi
+  for cfg in pii-patterns.json policies.json; do
+    if [ -f "${config_src}/${cfg}" ]; then
+      cp "${config_src}/${cfg}" "${HOME}/.claude/config/${cfg}"
+      _success "  ${cfg} → ~/.claude/config/"
+    fi
+  done
+
+  # Step 4: Merge settings.json
+  local settings_src="${SECURITY_SCRIPTS_DIR:-${CS_REPO_DIR}}/settings.json"
+  if [ -z "$SECURITY_SCRIPTS_DIR" ]; then
+    settings_src="${CS_REPO_DIR}/settings.json"
+  fi
+  local settings_dst="${HOME}/.claude/settings.json"
+
+  if [ -f "$settings_src" ]; then
+    if [ ! -f "$settings_dst" ]; then
+      cp "$settings_src" "$settings_dst"
+      _success "  settings.json created at ~/.claude/settings.json"
+    else
+      SETTINGS_SRC="$settings_src" SETTINGS_DST="$settings_dst" \
+      python3 - <<'PYEOF' 2>/dev/null && _success "  settings.json hooks merged (non-destructive)" || _warn "  settings.json merge skipped (manual merge may be needed)"
+import json, os
+
+src_path = os.environ['SETTINGS_SRC']
+dst_path = os.environ['SETTINGS_DST']
+
+with open(src_path) as f:
+    src = json.load(f)
+with open(dst_path) as f:
+    dst = json.load(f)
+
+src_hooks = src.get('hooks', {})
+dst_hooks = dst.setdefault('hooks', {})
+
+for event, event_hooks in src_hooks.items():
+    if event not in dst_hooks:
+        dst_hooks[event] = event_hooks
+    else:
+        # Append cast-security hook groups not already present
+        existing_commands = set()
+        for group in dst_hooks[event]:
+            for hook in group.get('hooks', []):
+                existing_commands.add(hook.get('command', ''))
+        for group in event_hooks:
+            for hook in group.get('hooks', []):
+                if hook.get('command', '') not in existing_commands:
+                    dst_hooks[event].append(group)
+                    break
+
+with open(dst_path, 'w') as f:
+    json.dump(dst, f, indent=2)
+    f.write('\n')
+PYEOF
+    fi
+  fi
+
+  # Step 5: Symlink CLI
+  local local_bin="${HOME}/.local/bin"
+  local cli_src="${CS_REPO_DIR}/bin/cast-security"
+  local cli_dst="${local_bin}/cast-security"
+  if mkdir -p "$local_bin" 2>/dev/null; then
+    if ln -sf "$cli_src" "$cli_dst" 2>/dev/null; then
+      _success "  cast-security → ~/.local/bin/cast-security"
+      if ! echo "$PATH" | grep -q "${local_bin}"; then
+        printf "\n  ${C_YELLOW}Note:${C_RESET} Add ~/.local/bin to your PATH:\n"
+        printf "    echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc\n"
+      fi
+    else
+      _warn "  Could not symlink to ~/.local/bin — run from repo: ${cli_src}"
+    fi
+  fi
+
+  printf "\n"
+  _bold "Next steps:"
+  printf "  1. Start a Claude Code session\n"
+  printf "  2. Run: cast-security status\n"
+  printf "  3. Run: cast-security audit\n\n"
+  _success "cast-security is ready."
+  printf "\n"
+}
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+_usage() {
+  cat <<USAGE
+${C_BOLD}cast-security v${CS_VERSION}${C_RESET} — Security hooks and audit trail for Claude Code
+
+Usage: cast-security <subcommand> [args]
+
+Subcommands:
+  ${C_BOLD}status${C_RESET}                     Hook health, audit log stats, active policy count
+  ${C_BOLD}audit${C_RESET}    [--tail N]         Tail the audit JSONL log (default: 20 lines)
+  ${C_BOLD}redact${C_RESET}   <text>             Run text through PII redaction engine
+  ${C_BOLD}policies${C_RESET}                   List active write governance policies
+  ${C_BOLD}install${C_RESET}                    Post-install setup: copy scripts, merge settings
+
+Global flags:
+  --version, -v    Print version
+  --help, -h       Show this help
+USAGE
+}
+
+# ── Main dispatch ─────────────────────────────────────────────────────────────
+case "${1:-}" in
+  status)
+    shift
+    _cmd_status "$@"
+    ;;
+  audit)
+    shift
+    _cmd_audit "$@"
+    ;;
+  redact)
+    shift
+    _cmd_redact "$@"
+    ;;
+  policies)
+    shift
+    _cmd_policies "$@"
+    ;;
+  install)
+    shift
+    _cmd_install "$@"
+    ;;
+  --version|-v)
+    echo "cast-security v${CS_VERSION}"
+    ;;
+  --help|-h|help|"")
+    _usage
+    ;;
+  *)
+    _error "Unknown subcommand: ${1}"
+    printf "Run 'cast-security --help' for usage.\n" >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,30 @@
+name: Docs Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  docs:
+    name: Check documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify README.md exists
+        run: test -f README.md
+      - name: Verify CHANGELOG.md exists
+        run: test -f CHANGELOG.md
+      - name: Verify VERSION file exists
+        run: test -f VERSION
+      - name: Check VERSION matches README badge
+        run: |
+          VERSION="$(cat VERSION | tr -d '[:space:]')"
+          if grep -q "version-${VERSION}-blue" README.md; then
+            echo "Version badge matches VERSION file: ${VERSION}"
+          else
+            echo "ERROR: README.md version badge does not match VERSION file (${VERSION})"
+            echo "Update the badge in README.md: ![version](https://img.shields.io/badge/version-${VERSION}-blue)"
+            exit 1
+          fi
