@@ -3,7 +3,7 @@ class CastSecurity < Formula
   homepage "https://github.com/ek33450505/cast-security"
   url "https://github.com/ek33450505/cast-security/archive/refs/heads/main.tar.gz"
   version "0.1.0"
-  sha256 "PLACEHOLDER"  # will be updated after repo is published
+  sha256 "1b019cdb4d4da19135331a4901039fc38d21dfcf30e522f55c7ee972da851813"
   license "MIT"
 
   depends_on "python3" => :required
