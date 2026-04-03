@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0] — 2026-04-03
+
+### Added
+
+- `pre-tool-guard.sh` — PreToolUse Bash guard that blocks destructive git operations (force-push to main/master, reset --hard, checkout ., clean -f)
+- `cast-headless-guard.sh` — PreToolUse guard that blocks `AskUserQuestion` tool calls in headless/cron sessions where no human is present to respond
+
+### Changed
+
+- `cast-audit-hook.sh` — synced with CAST v4.2: audit log path changed to `~/.claude/logs/audit.jsonl`, PII enforcement now reads `redact_pii` flag from `cast-cli.json` (replaces `CAST_PII_ENFORCEMENT` env var), added safelist pattern checking before blocking
+- `cast-permission-hook.sh` — synced with CAST v4.2: rules and timestamp paths updated to `~/.claude/cast/` directory
+- `cast-redact.py` — synced with CAST v4.2: includes PII safelist fixes
+- `pii-patterns.json` — synced with CAST v4.2 upstream
+- `policies.json` — synced with CAST v4.2 upstream
+- `settings.json` — updated to v4 format: all hook entries now include `id`, `matcher`, and `timeout` fields; added entries for `pre-tool-guard.sh` and `cast-headless-guard.sh`
+
 ## [0.1.0] — 2026-04-02
 
 ### Added

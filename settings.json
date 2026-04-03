@@ -1,11 +1,62 @@
 {
   "hooks": {
     "PreToolUse": [
-      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-security-guard.sh"}]},
-      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-audit-hook.sh"}]}
+      {
+        "id": "cast-security-guard",
+        "matcher": "Write|Edit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/cast-security-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "id": "cast-audit",
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/cast-audit-hook.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "id": "cast-git-guard",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/pre-tool-guard.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "id": "cast-headless-guard",
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/cast-headless-guard.sh",
+            "timeout": 3
+          }
+        ]
+      }
     ],
     "PermissionRequest": [
-      {"hooks": [{"type": "command", "command": "bash ~/.claude/scripts/cast-permission-hook.sh"}]}
+      {
+        "id": "cast-permission",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/cast-permission-hook.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

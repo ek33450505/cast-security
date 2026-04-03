@@ -1,5 +1,5 @@
 #!/bin/bash
-# cast-permission-hook.sh — cast-security PermissionRequest hook
+# cast-permission-hook.sh — CAST PermissionRequest hook
 # Hook event: PermissionRequest
 # Timeout: 3 seconds
 #
@@ -16,9 +16,9 @@
 
 set +e
 
-RULES_FILE="${HOME}/.claude/cast-security/permission-rules.json"
+RULES_FILE="${HOME}/.claude/cast/permission-rules.json"
 LOG_FILE="${HOME}/.claude/logs/permission-hook.log"
-TIMESTAMP_FILE="${HOME}/.claude/cast-security/hook-last-fired/PermissionRequest.timestamp"
+TIMESTAMP_FILE="${HOME}/.claude/cast/hook-last-fired/PermissionRequest.timestamp"
 
 # Read stdin into variable (non-blocking read with timeout)
 PAYLOAD=""

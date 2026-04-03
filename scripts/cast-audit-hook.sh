@@ -1,8 +1,8 @@
 #!/bin/bash
-# cast-audit-hook.sh — cast-security PreToolUse audit hook
+# cast-audit-hook.sh — CAST Phase 7f PreToolUse audit hook
 #
 # Intercepts every Claude Code tool call and appends an audit record to:
-#   ~/.claude/logs/cast-security-audit.jsonl
+#   ~/.claude/logs/audit.jsonl
 #
 # Each JSONL line records:
 #   timestamp        ISO8601 UTC
@@ -18,9 +18,9 @@
 #   is_cloud_bound   true if the tool routes data outside the machine
 #   input_hash       SHA256[:16] of full tool_input (catch-all fingerprint)
 #
-# PII enforcement: when CAST_PII_ENFORCEMENT=strict AND a cloud-bound tool call
-# contains PII, this hook outputs {"decision":"block"} and exits 2 to prevent
-# the call. Default mode is advisory (logs only, does not block).
+# PII enforcement: when redact_pii=true AND a cloud-bound tool call contains PII,
+# this hook outputs {"decision":"block"} and exits 2 to prevent the call.
+# Enforcement can be toggled: cast audit --redact on|off
 #
 # Installation (add to ~/.claude/settings.json):
 #   "PreToolUse": [
@@ -53,7 +53,7 @@ SAFELIST_PATTERNS=(
 # C5: ENFORCEMENT_MODE — only "strict" triggers exit 2 block. Default is advisory (log only).
 ENFORCEMENT_MODE="${CAST_PII_ENFORCEMENT:-advisory}"
 
-AUDIT_LOG="$HOME/.claude/logs/cast-security-audit.jsonl"
+AUDIT_LOG="$HOME/.claude/logs/audit.jsonl"
 
 # Ensure log directory exists
 mkdir -p "$HOME/.claude/logs" 2>/dev/null
@@ -263,6 +263,7 @@ except Exception:
 
         # Store redaction map
         mkdir -p "$HOME/.claude/logs/redact-maps" 2>/dev/null
+        REDACT_MAP_FILE="$HOME/.claude/logs/redact-maps/${CAST_AUDIT_SESSION}-${CAST_AUDIT_TIMESTAMP}.json"
         export CAST_REDACT_RESULT="$REDACT_RESULT"
         export CAST_REDACT_MAP_SESSION="$CAST_AUDIT_SESSION"
         export CAST_REDACT_MAP_TS="$CAST_AUDIT_TIMESTAMP"
@@ -281,9 +282,31 @@ except Exception:
     pass
 " 2>/dev/null || true
 
-        # Check enforcement mode: block if CAST_PII_ENFORCEMENT=strict, else warn only
-        if [ "$SAFELIST_MATCHED" != "true" ] && [ "$ENFORCEMENT_MODE" = "strict" ]; then
-          # strict mode only — exit 2 to block
+        # Check enforcement mode: block if redact_pii=true, else warn only
+        ENFORCE_BLOCK="$(python3 -c "
+import json, os
+try:
+    with open(os.path.expanduser('~/.claude/config/cast-cli.json')) as f:
+        cfg = json.load(f)
+    print('true' if cfg.get('redact_pii') else 'false')
+except Exception:
+    print('false')
+" 2>/dev/null || echo 'false')"
+
+        # C5: Check safelist — if matched text contains any safelist pattern, skip blocking
+        SAFELIST_MATCHED=false
+        for PATTERN in "${SAFELIST_PATTERNS[@]}"; do
+          if echo "$REDACT_TEXT" | grep -qE "$PATTERN" 2>/dev/null; then
+            SAFELIST_MATCHED=true
+            break
+          fi
+        done
+
+        if [ "$SAFELIST_MATCHED" = "true" ]; then
+          # Safelist match — log advisory only, never block
+          echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] PII-ADVISORY cast-audit-hook.sh: safelist match, skipping enforcement. Text preview: ${REDACT_TEXT:0:100}" >> "$HOME/.claude/logs/pii-advisory.log" 2>/dev/null || true
+        elif [ "$ENFORCEMENT_MODE" = "strict" ] && [ "$ENFORCE_BLOCK" = "true" ]; then
+          # C5: strict mode only — exit 2 to block
           # Append audit record before blocking so the block is logged
           echo "$RECORD" >> "$AUDIT_LOG" 2>/dev/null || true
           # Output block decision — Claude Code reads this from stdout

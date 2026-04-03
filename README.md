@@ -2,13 +2,13 @@
 
 Security hooks and audit trail for Claude Code, with no framework required.
 
-![version](https://img.shields.io/badge/version-0.1.0-blue)
+![version](https://img.shields.io/badge/version-0.2.0-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
 ## What it does
 
-Three-layer security for Claude Code, installable in under 30 seconds:
+Five-layer security for Claude Code, installable in under 30 seconds:
 
 ### Advisory scanner (`cast-security-guard.sh`)
 - Fires on every `Write`, `Edit`, and `Bash` tool call via `PreToolUse`
@@ -86,12 +86,26 @@ cast-security policies
 cast-security install
 ```
 
+### Git guard (`pre-tool-guard.sh`)
+- Fires on every `Bash` tool call via `PreToolUse`
+- Blocks destructive git operations: `force-push` to `main`/`master`, `reset --hard`, `checkout .`, `clean -f`, `branch -D`
+- Exits 2 (blocks the call) with a descriptive message when a dangerous operation is detected
+- No config required — safe defaults out of the box
+
+### Headless guard (`cast-headless-guard.sh`)
+- Fires on every `AskUserQuestion` tool call via `PreToolUse`
+- Blocks agent prompts for human input in headless/cron sessions where no user is present to respond
+- Detects headless mode via `CAST_HEADLESS`, `CI`, and `TERM=dumb` environment variables
+- Prevents sessions from hanging indefinitely waiting for a response that will never come
+
 ## Hook coverage
 
 | Event | Script | What it does |
 |---|---|---|
 | `PreToolUse` | `cast-security-guard.sh` | Advisory scan for sensitive paths and commands |
 | `PreToolUse` | `cast-audit-hook.sh` | SHA256 audit trail for all tool calls |
+| `PreToolUse` | `pre-tool-guard.sh` | Block destructive git operations |
+| `PreToolUse` | `cast-headless-guard.sh` | Block `AskUserQuestion` in headless/cron sessions |
 | `PermissionRequest` | `cast-permission-hook.sh` | Auto-deny/approve based on configured rules |
 
 ## Configuration
@@ -127,13 +141,15 @@ Path-based write governance rules. Each policy controls which paths require agen
 ```
 
 ### Strict PII mode
-By default, PII detection is advisory — it logs a warning but does not block the tool call. To enable hard-blocking on cloud-bound calls that contain PII:
+By default, PII detection is advisory — it logs a warning but does not block the tool call. To enable hard-blocking on cloud-bound calls that contain PII, set `redact_pii: true` in `~/.claude/config/cast-cli.json`:
 
-```bash
-export CAST_PII_ENFORCEMENT=strict
+```json
+{
+  "redact_pii": true
+}
 ```
 
-Or set it permanently in your shell profile. When strict mode is active, `WebFetch` and `WebSearch` calls containing detected PII will be blocked with exit code 2 and a `[CAST-PII-BLOCK]` message.
+When strict mode is active, `WebFetch` and `WebSearch` calls containing detected PII will be blocked with exit code 2 and a `[CAST-PII-BLOCK]` message.
 
 ## Works with CAST
 
