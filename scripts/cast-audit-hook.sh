@@ -2,7 +2,7 @@
 # cast-audit-hook.sh — CAST Phase 7f PreToolUse audit hook
 #
 # Intercepts every Claude Code tool call and appends an audit record to:
-#   ~/.claude/logs/audit.jsonl
+#   ~/.claude/logs/cast-security-audit.jsonl
 #
 # Each JSONL line records:
 #   timestamp        ISO8601 UTC
@@ -53,7 +53,7 @@ SAFELIST_PATTERNS=(
 # C5: ENFORCEMENT_MODE — only "strict" triggers exit 2 block. Default is advisory (log only).
 ENFORCEMENT_MODE="${CAST_PII_ENFORCEMENT:-advisory}"
 
-AUDIT_LOG="$HOME/.claude/logs/audit.jsonl"
+AUDIT_LOG="$HOME/.claude/logs/cast-security-audit.jsonl"
 
 # Ensure log directory exists
 mkdir -p "$HOME/.claude/logs" 2>/dev/null
