@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0] — 2026-05-11 — CAST v7 Sync
+
+### Added
+- `scripts/cast-audit.py` — consolidated audit parsing, PII analysis,
+  and record-writing in Python. `cast-audit-hook.sh` now delegates
+  to this script (reduces inline Python from ~300 to ~60 lines).
+
+### Changed
+- `pre-tool-guard.sh`:
+  - Gained TTL sweep for stale agent-status files
+  - Added `CLAUDE_SUBPROCESS=1` escape-hatch path (subagent commits
+    no longer incorrectly blocked in standalone use)
+- `cast-audit-hook.sh`: refactored to delegate to `cast-audit.py`.
+
+### Preserved
+- Audit log path remains `cast-security-audit.jsonl` (cast-security's
+  documented differentiation from canonical CAST `audit.jsonl`).
+
+### Tests
+- BATS: 33/33 pass.
+
 ## [0.2.0] — 2026-04-03
 
 ### Added
