@@ -32,6 +32,9 @@ ti = d.get('tool_input', {})
 print(ti.get('file_path', ti.get('path', '')))" 2>/dev/null || echo "")"
 
   if [ -n "$FILE_PATH" ]; then
+    # TTL sweep: remove agent-status files older than 2 hours (matches SESSION_TIMEOUT=7200)
+    find "${CLAUDE_DIR:-$HOME/.claude}/agent-status/" -name "*.json" -mmin +120 -delete 2>/dev/null || true
+
     CAST_FILE_PATH="$FILE_PATH" CAST_POLICY_OVERRIDE="${CAST_POLICY_OVERRIDE:-0}" python3 -c "
 import json, os, re, sys, datetime
 
@@ -147,8 +150,12 @@ fi
 FIRST_LINE="${CMD%%$'\n'*}"
 
 # --- git commit block ---
-# Allow ONLY if escape hatch is a leading env assignment immediately before git commit
-if echo "$FIRST_LINE" | grep -qE "^(cd[[:space:]]+[^[:space:]]+[[:space:]]+&&[[:space:]]+)?CAST_COMMIT_AGENT=1[[:space:]]+git[[:space:]]+commit"; then
+# Allow commits from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
+if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
+  exit 0
+fi
+# Allow ONLY if escape hatch env var appears before git commit (tolerates leading cd chains)
+if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_COMMIT_AGENT=1[[:space:]]+git[[:space:]]+commit"; then
   exit 0
 fi
 # Block any other git commit invocation
@@ -158,8 +165,12 @@ if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git[[:space:]]+commit"; then
 fi
 
 # --- git push block ---
-# Allow ONLY if escape hatch is a leading env assignment immediately before git push
-if echo "$FIRST_LINE" | grep -qE "^(cd[[:space:]]+[^[:space:]]+[[:space:]]+&&[[:space:]]+)?CAST_PUSH_OK=1[[:space:]]+git[[:space:]]+push"; then
+# Allow pushes from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
+if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
+  exit 0
+fi
+# Allow ONLY if escape hatch env var appears before git push (tolerates leading cd chains)
+if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_PUSH_OK=1[[:space:]]+git[[:space:]]+push"; then
   exit 0
 fi
 # Block any other git push invocation
