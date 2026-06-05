@@ -154,12 +154,12 @@ FIRST_LINE="${CMD%%$'\n'*}"
 if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
   exit 0
 fi
-# Allow ONLY if escape hatch env var appears before git commit (tolerates leading cd chains)
-if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_COMMIT_AGENT=1[[:space:]]+git[[:space:]]+commit"; then
+# Allow ONLY if escape hatch env var appears before git commit (tolerates leading cd chains and git global options)
+if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_COMMIT_AGENT=1[[:space:]]+git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+commit"; then
   exit 0
 fi
-# Block any other git commit invocation
-if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git[[:space:]]+commit"; then
+# Block any other git commit invocation (including those with git global options)
+if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+commit"; then
   echo "**[CAST]** Raw \`git commit\` blocked. Dispatch the \`commit\` agent instead (Agent tool, subagent_type: 'commit')."
   exit 2
 fi
@@ -169,13 +169,36 @@ fi
 if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
   exit 0
 fi
-# Allow ONLY if escape hatch env var appears before git push (tolerates leading cd chains)
-if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_PUSH_OK=1[[:space:]]+git[[:space:]]+push"; then
+# Allow ONLY if escape hatch env var appears before git push (tolerates leading cd chains, additional
+# env-var assignments between CAST_PUSH_OK=1 and git, and git global options).
+# Pattern breakdown:
+#   (^|&&\s*)             — start of line or after a && chain
+#   CAST_PUSH_OK=1\s+     — the required escape hatch
+#   ([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+\s+)*  — zero or more extra VAR=value assignments (e.g. CAST_SKIP_BATS_PUSH=1)
+#   git(global-opts)*\s+push — the actual git push command
+if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_PUSH_OK=1[[:space:]]+([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]+[[:space:]]+)*git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+push"; then
   exit 0
 fi
-# Block any other git push invocation
-if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git[[:space:]]+push"; then
+# Block any other git push invocation (including those with git global options)
+if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+push"; then
   echo "**[CAST]** Raw \`git push\` blocked. Ensure code-reviewer has run, then use \`CAST_PUSH_OK=1 git push\` or dispatch via the commit agent workflow."
+  exit 2
+fi
+
+# --- git stash block ---
+# Allow stash operations from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
+if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
+  exit 0
+fi
+# Allow ONLY if explicit escape hatch env var appears before git stash (tolerates git global options)
+if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_STASH_OK=1[[:space:]]+git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+stash"; then
+  exit 0
+fi
+# Block any git stash invocation (push, pop, apply, drop, clear, list, save, show, create, store, branch)
+# Guards against the 2026-05-19 push-agent bug where bare 'git stash pop/apply' resurrected abandoned stashes.
+# Includes git global options tolerance.
+if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+stash([[:space:]]|$)"; then
+  echo "**[CAST]** Raw \`git stash\` blocked. Stash operations are prohibited for agents — they risk resurrecting abandoned stashes from other sessions. If you genuinely need stash, use \`CAST_STASH_OK=1 git stash\` (document your reason). See: 2026-05-19 push-agent stash incident."
   exit 2
 fi
 

@@ -121,12 +121,7 @@ def decide(payload_str):
         # Fall through to default
         return {"decision": default_decision, "reason": f"no matching rule — using default ({default_decision})"}
 
-    # Unknown tool: fall through to default (allow)
-    # IMPORTANT: Do NOT add blocking logic for unknown tool names here.
-    # Claude Code's ANTI_DISTILLATION_CC feature (feature flag, 2026 roadmap) injects
-    # synthetic decoy tool definitions to prevent model distillation. These decoys appear
-    # as unknown tool_name values in the hook payload. Blocking unknown tools would
-    # interfere with this anti-distillation mechanism.
+    # Unknown tool: fall through to default (allow).
     # The correct behavior is: unknown tool names → default allow → logged below.
     return {"decision": default_decision, "reason": f"unknown tool '{tool}' — using default ({default_decision})"}
 
