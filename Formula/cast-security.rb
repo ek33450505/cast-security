@@ -1,8 +1,8 @@
 class CastSecurity < Formula
   desc "Security hooks and audit trail for Claude Code"
   homepage "https://github.com/ek33450505/cast-security"
-  url "https://github.com/ek33450505/cast-security/archive/refs/tags/v0.3.0.tar.gz"
-  version "0.3.0"
+  url "https://github.com/ek33450505/cast-security/archive/refs/tags/v0.3.1.tar.gz"
+  version "0.3.1"
   sha256 "TODO_UPDATE_SHA256_AFTER_TAG_PUSH"
   license "MIT"
 
