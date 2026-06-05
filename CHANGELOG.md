@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.3.1] — 2026-06-05 — Release re-cut
+
+The v0.3.0 git tag already existed, so the ecosystem-audit security backports (below) ship as v0.3.1. No code changes vs the v0.3.0 working tree — version/tag alignment only.
+
 ## [v0.3.0] — 2026-06-05 — Ecosystem audit + security correctness backports
 
 ### Doc fixes
