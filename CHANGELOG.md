@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.3.0] — 2026-06-05 — Ecosystem audit + security correctness backports
+
+### Doc fixes
+- README: corrected cast-hooks count (13 → 20) in the ecosystem table
+- README: removed fabricated "Constellation 3D graph" claim from cast-desktop description
+- SECURITY.md: updated supported version range from 0.1.x to 0.3.x
+- Formula/cast-security.rb: switched URL from rolling `main.tar.gz` to versioned tag archive; bumped version from 0.1.0 to 0.3.0
+
+### Code backports from flagship (claude-agent-team v7.4.1)
+- `scripts/pre-tool-guard.sh`: added git global-option tolerance to git commit/push blocks so `git -C <dir>` no longer bypasses the guard; added git-stash block (`CAST_STASH_OK=1` escape hatch) per the 2026-05-19 stash incident
+- `scripts/cast-redact.py`: added 3 missing PII patterns (ABSOLUTE_PATH, BITBUCKET_URL, SLACK_WEBHOOK); added precompiled-regex cache (_COMPILED_PATTERNS) and fast short-circuit (_PII_CANDIDATES) to avoid per-call re.compile overhead
+- `settings.json`: added `WebFetch|WebSearch` to the cast-audit matcher so PII detection fires on cloud-bound calls (this was the missing link behind the README headline "PII redaction on WebFetch/WebSearch")
+- `scripts/cast-permission-hook.sh`: removed fabricated ANTI_DISTILLATION_CC comment (fictional feature flag)
+
 ## [0.3.0] — 2026-05-11 — CAST v7 Sync
 
 ### Added

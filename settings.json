@@ -14,7 +14,7 @@
       },
       {
         "id": "cast-audit",
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "command",
