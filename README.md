@@ -3,7 +3,7 @@
 Security hooks and audit trail for Claude Code, with no framework required.
 
 [![CI](https://github.com/ek33450505/cast-security/actions/workflows/ci.yml/badge.svg)](https://github.com/ek33450505/cast-security/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.3.0-blue)
+![version](https://img.shields.io/badge/version-0.3.1-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
@@ -58,7 +58,7 @@ bash install.sh
 ```
 $ cast-security status
 
-cast-security v0.3.0 — Status
+cast-security v0.3.1 — Status
 ════════════════════════════════════
 Hook health:
   cast-security-guard.sh          last fired: 2026-04-02 14:01:22
