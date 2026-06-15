@@ -64,7 +64,8 @@ teardown() {
 
 @test "cast-security --version works after install" {
   bash "$REPO_DIR/install.sh" >/dev/null 2>&1
+  EXPECTED_VERSION="$(cat "$REPO_DIR/VERSION" | tr -d '[:space:]')"
   run cast-security --version
   [ $status -eq 0 ]
-  [[ "$output" == *"0.3.1"* ]]
+  [[ "$output" == *"$EXPECTED_VERSION"* ]]
 }
