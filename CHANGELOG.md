@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0] — 2026-06-15 — v8 parity sync
+
+### Backported from flagship (claude-agent-team v8.0.0)
+- `scripts/pre-tool-guard.sh`: consolidated CLAUDE_SUBPROCESS skip to a single top-level guard (was duplicated before each git block); routed all block messages to STDERR (`>&2` / `1>&2 2>/dev/null`) so Claude Code surfaces them as the block reason on exit 2; replaced deprecated `datetime.utcnow()` with tz-aware `datetime.now(timezone.utc)`; removed stale `hook-last-fired` housekeeping (superseded by the SubagentStop hook)
+- `scripts/cast-redact.py`: added `_CUSTOM_REPLACEMENTS` dict for entity-specific redaction strings (ABSOLUTE_PATH → `~/`, BITBUCKET_URL/SLACK_WEBHOOK → bracket form); updated `redact_regex` to use it; added F4 short-text skip (<10 chars cannot contain any supported PII pattern)
+
+### New v8 security primitives
+- `scripts/cast-command-guard.sh`: thin PreToolUse Bash wrapper (delegates to cast-command-guard.py)
+- `scripts/cast-command-guard.py`: command-layer guard blocking pkill/killall, process-group kill, and catastrophic `rm -rf` of protected paths; escape hatches: `CAST_KILL_OK=1`, `CAST_RM_OK=1`
+- `scripts/cast_guard.py`: `safe_rmtree(path, blast_radius, label)` library — removes a path only if strictly inside the declared blast radius; hard-denies filesystem root, user home, and `$HOME/.claude`
+
 ## [v0.3.1] — 2026-06-05 — Release re-cut
 
 The v0.3.0 git tag already existed, so the ecosystem-audit security backports (below) ship as v0.3.1. No code changes vs the v0.3.0 working tree — version/tag alignment only.
