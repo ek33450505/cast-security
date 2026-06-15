@@ -10,12 +10,14 @@
 # SECURITY: Escape hatch MUST appear as a leading env var assignment before the git command.
 # It cannot appear only inside a commit message, comment, or echo — those are blocked.
 # Valid:   CAST_COMMIT_AGENT=1 git commit -m "message"
+# Valid:   CAST_COMMIT_AGENT=1 git -C /path commit -m "message"  (global options tolerated)
 # Invalid: git commit -m "CAST_COMMIT_AGENT=1"  (message injection — blocked)
 # Invalid: echo "CAST_COMMIT_AGENT=1" && git commit  (chained echo — blocked)
 
-set -euo pipefail
+# Skip for CAST-internal subprocesses (consistency with every other CAST hook; latency)
+if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then exit 0; fi
 
-mkdir -p ~/.claude/cast/hook-last-fired && touch ~/.claude/cast/hook-last-fired/PreToolUse.timestamp
+set -euo pipefail
 
 INPUT="$(cat)"
 TOOL="$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_name',''))" 2>/dev/null || echo "")"
@@ -35,6 +37,10 @@ print(ti.get('file_path', ti.get('path', '')))" 2>/dev/null || echo "")"
     # TTL sweep: remove agent-status files older than 2 hours (matches SESSION_TIMEOUT=7200)
     find "${CLAUDE_DIR:-$HOME/.claude}/agent-status/" -name "*.json" -mmin +120 -delete 2>/dev/null || true
 
+    # Policy engine. The block path is the engine's ONLY stdout write; the closing
+    # redirect (1>&2 2>/dev/null) routes that block message to the hook stderr so
+    # Claude Code surfaces it as the block reason on exit 2, while still suppressing
+    # the engine's own stderr noise. Comment kept free of apostrophes/backticks (bash 3.2).
     CAST_FILE_PATH="$FILE_PATH" CAST_POLICY_OVERRIDE="${CAST_POLICY_OVERRIDE:-0}" python3 -c "
 import json, os, re, sys, datetime
 
@@ -58,7 +64,7 @@ except Exception:
     sys.exit(0)
 
 agent_status_dir = os.path.expanduser('~/.claude/agent-status')
-now = datetime.datetime.utcnow().timestamp()
+now = datetime.datetime.now(datetime.timezone.utc).timestamp()
 SESSION_TIMEOUT = 7200  # 2 hours
 
 def agent_completed_this_session(required_agent):
@@ -108,7 +114,7 @@ for policy in config.get('policies', []):
             audit_path = os.path.expanduser('~/.claude/logs/audit.jsonl')
             os.makedirs(os.path.dirname(audit_path), exist_ok=True)
             event = {
-                'timestamp': _dt.datetime.utcnow().isoformat() + 'Z',
+                'timestamp': _dt.datetime.now(_dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
                 'event': 'POLICY_OVERRIDE',
                 'policy_id': policy_id,
                 'file_path': file_path,
@@ -133,7 +139,7 @@ for policy in config.get('policies', []):
     else:
         # severity == warn
         print(f'[CAST-POLICY-WARN] Policy \"{policy_id}\": {description}. Consider dispatching \`{required_agent}\` first.', file=sys.stderr)
-" 2>/dev/null
+" 1>&2 2>/dev/null
     EXIT_CODE=$?
     if [ $EXIT_CODE -eq 2 ]; then
       exit 2
@@ -150,25 +156,17 @@ fi
 FIRST_LINE="${CMD%%$'\n'*}"
 
 # --- git commit block ---
-# Allow commits from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
-if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
-  exit 0
-fi
 # Allow ONLY if escape hatch env var appears before git commit (tolerates leading cd chains and git global options)
 if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_COMMIT_AGENT=1[[:space:]]+git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+commit"; then
   exit 0
 fi
 # Block any other git commit invocation (including those with git global options)
 if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+commit"; then
-  echo "**[CAST]** Raw \`git commit\` blocked. Dispatch the \`commit\` agent instead (Agent tool, subagent_type: 'commit')."
+  echo "**[CAST]** Raw \`git commit\` blocked. Dispatch the \`commit\` agent instead (Agent tool, subagent_type: 'commit')." >&2
   exit 2
 fi
 
 # --- git push block ---
-# Allow pushes from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
-if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
-  exit 0
-fi
 # Allow ONLY if escape hatch env var appears before git push (tolerates leading cd chains, additional
 # env-var assignments between CAST_PUSH_OK=1 and git, and git global options).
 # Pattern breakdown:
@@ -181,15 +179,11 @@ if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_PUSH_OK=1[[:space:]]+([
 fi
 # Block any other git push invocation (including those with git global options)
 if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+push"; then
-  echo "**[CAST]** Raw \`git push\` blocked. Ensure code-reviewer has run, then use \`CAST_PUSH_OK=1 git push\` or dispatch via the commit agent workflow."
+  echo "**[CAST]** Raw \`git push\` blocked. Ensure code-reviewer has run, then use \`CAST_PUSH_OK=1 git push\` or dispatch via the commit agent workflow." >&2
   exit 2
 fi
 
 # --- git stash block ---
-# Allow stash operations from authorized subagent sessions (CLAUDE_SUBPROCESS=1 is set by Claude Code)
-if [ "${CLAUDE_SUBPROCESS:-0}" = "1" ]; then
-  exit 0
-fi
 # Allow ONLY if explicit escape hatch env var appears before git stash (tolerates git global options)
 if echo "$FIRST_LINE" | grep -qE "(^|&&[[:space:]]*)CAST_STASH_OK=1[[:space:]]+git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+stash"; then
   exit 0
@@ -198,7 +192,7 @@ fi
 # Guards against the 2026-05-19 push-agent bug where bare 'git stash pop/apply' resurrected abandoned stashes.
 # Includes git global options tolerance.
 if echo "$FIRST_LINE" | grep -qE "(^|[[:space:]])git([[:space:]]+(-C[[:space:]]+[^[:space:]]+|--no-pager|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+))*[[:space:]]+stash([[:space:]]|$)"; then
-  echo "**[CAST]** Raw \`git stash\` blocked. Stash operations are prohibited for agents — they risk resurrecting abandoned stashes from other sessions. If you genuinely need stash, use \`CAST_STASH_OK=1 git stash\` (document your reason). See: 2026-05-19 push-agent stash incident."
+  echo "**[CAST]** Raw \`git stash\` blocked. Stash operations are prohibited for agents — they risk resurrecting abandoned stashes from other sessions. If you genuinely need stash, use \`CAST_STASH_OK=1 git stash\` (document your reason). See: 2026-05-19 push-agent stash incident." >&2
   exit 2
 fi
 
