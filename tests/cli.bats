@@ -16,10 +16,11 @@ setup() {
   export PATH="$REPO_DIR/bin:$PATH"
 }
 
-@test "--version exits 0 and shows 0.3.1" {
+@test "--version exits 0 and shows expected version" {
+  EXPECTED_VERSION="$(cat "$REPO_DIR/VERSION" | tr -d '[:space:]')"
   run cast-security --version
   [ $status -eq 0 ]
-  [[ "$output" == *"0.3.1"* ]]
+  [[ "$output" == *"$EXPECTED_VERSION"* ]]
 }
 
 @test "--help exits 0" {
